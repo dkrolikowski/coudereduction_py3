@@ -5,7 +5,7 @@ import os, pickle, pdb
 
 ##### Set the names of the directories you want to reduce! #####
 
-nightarr = [ 20200903 ]
+nightarr = [ 20201130 ]
 
 if not isinstance( nightarr[0], str ):
     nightarr = [ str(night) for night in nightarr ]
@@ -29,6 +29,7 @@ for night in nightarr:
 
             ## Set which things to be done! ##
             self.doCals   = True    # Extract and reduce calibration files
+            self.doCubes  = True    # Make the arc/object spectra cubes
             self.doTrace  = False    # Do the trace!
             self.doArcEx  = False    # Extract arc spectra -- simple extraction
             self.doObjEx  = False    # Extract object spectra -- full extraction
@@ -36,17 +37,17 @@ for night in nightarr:
             self.doObjWav = False    # Apply wavelength solutions to object spectra
 
             ## Set other important parameters ##
-            self.CosmicSub  = False   # Create object spectral cube with cosmic ray subtraction
+            self.cosmic_sub  = True   # Create object spectral cube with cosmic ray subtraction
             self.ObjExType  = 'arc'  # Set the extraction method for objects: 'full' or 'arc'
             self.verbose    = True    # Basically just have as much printing of what's going on to the terminal
             self.WavPolyOrd = 2       # Polynomial order for the wavelength solution fit
-            self.cos_iters  = 2       # Set the number of iterations for the cosmic subtraction
+            self.niter_cosmic_sub  = 2       # Set the number of iterations for the cosmic subtraction
 
             self.InfoFile   = 'headstrip.csv'   # Name for the header info file
             self.PrelimWav  = 'prelim_wsol_new.pkl' # Name for the preliminary wavelength solution (initial guess)
 
-            self.DarkCurVal = 0.0    # Value of the dark current
-            self.BPMlimit   = 99.95  # Percentile to mark above as a bad pixel
+            self.dark_curr_val = 0.0    # Value of the dark current
+            self.bpm_limit     = 99.95  # Percentile to mark above as a bad pixel
             self.MedCut     = 85.0   # Flux percentile to cut at when making final trace using object spectra
 
             ## Other thing to do ##
@@ -63,40 +64,46 @@ for night in nightarr:
         os.mkdir( Conf.rdir )
     if not os.path.exists( Conf.rdir + 'plots/' ):
         os.mkdir( Conf.rdir + 'plots/' )
+    if not os.path.exists( Conf.rdir + 'spec_cubes/' ):
+        os.mkdir( Conf.rdir + 'spec_cubes/' )
 
     print( '\nYou are reducing directory', Conf.dir, 'Better be right!\n' )
 
     os.chdir( Conf.dir ) # Get into the night's directory!
 
     ## Create the header info file
-    if not os.path.exists( Conf.dir + Conf.InfoFile ):
+    if True:
+    # if not os.path.exists( Conf.dir + Conf.InfoFile ):
         Fns.Header_Info( Conf )
 
     file_info = pd.read_csv( Conf.InfoFile )
 
-    ##### Set up file indices from header file #####
+    ##### Get file indices from header file #####
 
     bias_inds = np.where( file_info.Type == 'zero' )[0] ## Bias indicies
     flat_inds = np.where( file_info.Type == 'flat' )[0] ## Flat indicies
 
-    ## Arcs and Objs are a bit annoying... ensure arc is called an arc and that an object isn't a solar port or test!
+    ## Arcs and Objs require some checking against frames that shouldn't be included... ensure arc is called an arc and that an object isn't a solar port or test!
     arc_hdrnames    = [ 'Thar', 'ThAr', 'THAR', 'A' ]
     notobj_hdrnames = [ 'solar', 'SolPort', 'solar port', 'Solar Port', 'test', 'SolarPort', 'Solport', 'solport', 'Sol Port', 'Solar Port Halpha' ]
 
+    # Exclude arc frames with exposure times below a certain amount (where there just won't be enough flux for a good solution)
     min_arc_exp = 30.0
 
     arc_inds = np.where( np.logical_and( ( ( file_info.Type.values == 'comp' ) & ( file_info.ExpTime.values > min_arc_exp ) ), np.any( [ file_info.Object == hdrname for hdrname in arc_hdrnames ], axis = 0 ) ) )[0]
     obj_inds = np.where( np.logical_and( file_info.Type.values == 'object', np.all( [ file_info.Object != hdrname for hdrname in notobj_hdrnames ], axis = 0 ) ) )[0]
 
-    ##### Okay so now time for the calibrations and image cubes! Bias, flats, arcs, objects #####
+    ##### Get the calibration files -- bias, flat, and bad pixel map #####
 
-    DarkCube = file_info.ExpTime * Conf.DarkCurVal ## Make a dark current array
+    super_bias, super_flat, bad_pix_map = Fns.Basic_Cals( bias_inds, flat_inds, file_info, Conf )
 
-    super_bias, super_flat, bad_pix_map = Fns.Basic_Cals( bias_inds, flat_inds, file_info, Conf ) ## Make the master bias and flat field and bad pixel mask
+    ##### Now get the image cubes -- objects and arcs #####
 
-    # ## Make the image cubes! Outputs images and SNR images
-    # ArcCube, ArcSNR, ObjCube, ObjSNR = Fns.Return_Cubes( ArcInds, ObjInds, FileInfo, DarkCube, SuperBias, FlatField, BPM, Conf )
-    #
+    dark_curr_arr = file_info['ExpTime'].values * Conf.dark_curr_val ## Make a dark current array
+
+    ## Make the image cubes! Outputs images and SNR images
+    arc_val_cube, arc_snr_cube, obj_val_cube, obj_snr_cube = Fns.Return_Cubes( arc_inds, obj_inds, file_info, dark_curr_arr, super_bias, super_flat, bad_pix_map, Conf )
+
     # ##### Now do the trace! This is basically all in the functions file #####
     #
     # MedTrace, FitTrace = Fns.Get_Trace( FlatField['vals'], ObjCube, Conf )
