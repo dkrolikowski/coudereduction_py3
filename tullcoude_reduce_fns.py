@@ -242,33 +242,63 @@ def Return_Cubes( arc_inds, obj_inds, file_info, dark_curr_arr, super_bias, supe
 ##### Section: Get the trace! #####
 
 ## Function: Get peak values of trace for a slice of the flat ##
-def Start_Trace( flatslice, percent ):
+def Start_Trace( flat_slice, grad_perc_cut ):
 
-    fgrad    = np.gradient( flatslice )
-    cutvalue = np.nanpercentile( abs( fgrad ), percent )
+    flat_slice_grad = np.gradient( flat_slice )
+    grad_cut_val    = np.nanpercentile( abs( flat_slice_grad ), grad_perc_cut )
 
-    orderzeros = []
-    last       = 0
+    order_zeros = []
+    last_peak   = 0
 
     # Find peaks based on the gradient of the flat slice
-    for i in range( 6, flatslice.shape[0] ):
-        if fgrad[i] > cutvalue or last == 0:
-            if 100 > i - last > 20 or last == 0:
-                orderzeros.append( i + 11 )
-                last = i
+    for i_pix in range( 6, flat_slice.shape[0] ): # Start at 6 to cut out the very start, although probably doesn't matter if it is 0 or 6 or 12
+        if flat_slice_grad[i_pix] > grad_cut_val or last_peak == 0:
+            if 100 > i_pix - last_peak > 20 or last_peak == 0:
+                order_zeros.append( i_pix + 11 )
+                last_peak = i_pix
+    order_zeros = np.array( order_zeros )
 
-    orderzeros = np.array( orderzeros )
+    # Here we will recenter the peaks that have been found!
+    for i_ord, ord_loc in enumerate( order_zeros ):
+        flat_cut_val = flat_slice[ord_loc] * ( 0.7 ) # The value for like the edges of the order peak to center on (70% of the current peak value)
 
-    for i in range( len( orderzeros ) ): # Go through and recenter the peaks found
-        o      = orderzeros[i]
-        cutoff = flatslice[o] * ( 0.7 )
-        left   = o - 15 + np.where( flatslice[o-15:o] <= cutoff )[-1]
-        right  = o + np.where( flatslice[o:o+20] <= cutoff )[-1]
+        left  = ord_loc - 15 + np.where( flat_slice[ord_loc-15:ord_loc] <= flat_cut_val )[-1] # Use 15 as a rough peak width
+        right = ord_loc + np.where( flat_slice[ord_loc:ord_loc+20] <= flat_cut_val )[-1]
+
         if len( left ) == 0 or len( right ) == 0:
-            orderzeros[i] = o
+            order_zeros[i_ord] = ord_loc # If it just doesn't find the edges use what is already there!
         else:
-            orderzeros[i] = ( right[0] + left[-1] ) / 2
+            order_zeros[i_ord] = ( right[0] + left[-1] ) / 2 # Otherwise use the midpoint of the left and right edges
 
-    ordervals = flatslice[orderzeros]
+    order_vals = flat_slice[order_zeros]
 
-    return orderzeros, ordervals
+    return order_zeros, order_vals
+
+## Function: Use flat slices to find starting values for the trace ##
+def Find_Orders( super_flat, order_start ):
+    # Uses flat slices at edge and in middle and uses that to refine initial points
+
+    mid_point = ( ( super_flat.shape[1] + order_start ) // 2 ) + 100 # Integer division if it is odd, add 100 for uh some reason.
+
+    start_zeros, start_vals = Start_Trace( super_flat[:,order_start], 50.0 ) # Get peaks for edge of flat
+    mid_zeros, mid_vals     = Start_Trace( super_flat[:,mid_point], 50.0 )   # Get peaks for middle of flat
+
+    # By hand remove extra orders that are present at the midpoint (just for here it is always 2, but that could be a problem for not our setup)
+    mid_zeros = mid_zeros[2:]
+    mid_vals  = mid_vals[2:]
+
+    # Calculate slopes between the two to refine and smooth out trace starting points across orders (potential for outliers with spiky trace peaks)
+    slopes    = []
+    x_diff    = super_flat.shape[1] + order_start - mid_point
+    fit_range = range( 3, start_zeros.size - 2 ) # Fit with the orders found from the 4th to the number of edge orders minus 2 (used to be index = 5 to 50)
+
+    for i_ord in fit_range:
+        y_diff = float( start_zeros[i_ord] - mid_zeros[i_ord] )
+        slopes.append( y_diff / x_diff )
+    slope_fit = np.polyfit( fit_range, slopes, 2 ) # Now do a 2nd order polynomial fit of the slopes!
+
+    # Apply the fit 2nd order polynomial to get the final order locations at the edge!
+    final_zeros = np.round( mid_zeros + np.polyval( slope_fit, range( len( mid_zeros ) ) ) * x_diff ).astype( int )
+    final_vals  = super_flat[final_zeros, order_start]
+
+    return final_zeros, final_vals
