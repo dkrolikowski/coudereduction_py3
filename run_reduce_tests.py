@@ -28,7 +28,7 @@ for night in nightarr:
             self.codedir = os.getenv("HOME") + '/codes/coudereduction_py3/'
 
             ## Set which things to be done! ##
-            self.doCals   = False    # Extract and reduce calibration files
+            self.doCals   = True    # Extract and reduce calibration files
             self.doCubes  = False    # Make the arc/object spectra cubes
             self.doTrace  = True    # Do the trace!
             self.doArcEx  = False    # Extract arc spectra -- simple extraction

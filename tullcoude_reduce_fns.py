@@ -138,13 +138,13 @@ def Basic_Cals( bias_inds, flat_inds, file_info, Conf ):
         plt.imshow( np.log10( super_bias['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none', vmin = np.median( np.log10( super_bias['vals'] ) ),
                     vmax = np.percentile( np.log10( super_bias['vals'] ), Conf.bpm_limit ) )
         plt.colorbar()
-        plt.title( str( np.nanmedian( super_bias['vals'] ) ) )
+        plt.title( 'Bias ' + str( np.nanmedian( super_bias['vals'] ) ) )
         plt.savefig( Conf.rdir + 'cal_files/bias.pdf' )
         plt.clf()
 
         plt.clf() # Plot the flat
         plt.imshow( np.log10( super_flat['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none' )
-        plt.colorbar()
+        plt.colorbar(); plt.title( 'Flat Field' )
         plt.savefig( Conf.rdir + 'cal_files/flat.pdf' )
         plt.clf()
 
@@ -152,7 +152,7 @@ def Basic_Cals( bias_inds, flat_inds, file_info, Conf ):
         plt.imshow( np.log10( super_bias['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none', vmin = np.median( np.log10( super_bias['vals'] ) ),
                     vmax = np.percentile( np.log10( super_bias['vals'] ), Conf.bpm_limit ) )
         plt.plot( bad_pix_map[1], bad_pix_map[0], ',', c = '#dfa5e5', ms = 1 ) # Invert x,y for imshow
-        plt.colorbar()
+        plt.colorbar(); plt.title( 'Bad Pixel Map on Bias' )
         plt.savefig( Conf.rdir + 'cal_files/bpm.pdf' )
         plt.clf()
 
@@ -292,6 +292,7 @@ def Find_Orders( super_flat, order_start, Conf ):
             plt.plot( super_flat[:,mid_point], '#dfa5e5', label = 'Mid Order' ); plt.plot( mid_zeros, mid_vals, '+', c = '#bf3465' )
             plt.plot( super_flat[:,order_start], '#21bcff', label = 'Order Edge' ); plt.plot( start_zeros, start_vals, '+', c = '#1c6ccc' )
             plt.xlim( x_range[0] - 10, x_range[1] ); plt.ylim( 0, np.nanmax( super_flat[x_range[0]:x_range[1],mid_point] ) + 0.015 )
+            plt.xlabel( 'Pixel across orders' ); plt.ylabel( 'Flat Field Value' )
             plt.legend(); pdf.savefig(); plt.close()
     plt.clf()
 
@@ -363,6 +364,8 @@ def Fit_Trace( trace, Conf ):
     for i_ord in range( trace.shape[0] ): # Do initial fit for the trace along each order
         trace_pars[i_ord] = np.polyfit( np.arange( trace.shape[1] ), trace[i_ord], 2 )
 
+    ## Title string values
+    title_arr = [ '2nd order polynomial coefficient', '']
     with PdfPages( Conf.rdir + 'trace/full_trace_hyperpars.pdf' ) as pdf:
         for i_coeff in [ 0, 1 ]: # Redetermine linear and quadratic terms in the fits (leave zero point alone)
 
@@ -382,6 +385,8 @@ def Fit_Trace( trace, Conf ):
             plot_x = np.linspace( 0, trace_pars.shape[0], 200 )
             plt.plot( plot_x, np.polyval( hyper_pars, plot_x ), '#50b29e', label = 'Initial Hyper Par Fit' )
             plt.plot( plot_x, np.polyval( hyper_pars_2, plot_x ), '#bf3465', label = 'Final Hyper Par Fit' )
+            plt.xlabel( 'Order Number' ); plt.ylabel( 'Polynomial coefficient value' )
+            plt.title( str( 2 - i_coeff ) + ' order polynomial coefficient' )
             plt.legend(); pdf.savefig(); plt.close()
 
             trace_pars[:,i_coeff] = hyper_fit_2
@@ -406,7 +411,8 @@ def Get_Trace( super_flat, Conf ):
         with PdfPages( Conf.rdir + 'trace/prelim_trace.pdf' ) as pdf:
             for x_range in [ ( 0, super_flat.shape[0] ), ( 0, 900 ), ( 800, super_flat.shape[0] ) ]:
                 plt.plot( super_flat[:,Conf.order_start], '#d9d9d9' ); plt.plot( order_zeros, order_vals, '+', c = '#bf3465' )
-                plt.xlim( x_range[0] - 10, x_range[1] ); plt.ylim( 0, np.nanmax( super_flat[x_range[0]:x_range[1],Conf.order_start] ) + 0.015 ); pdf.savefig(); plt.close()
+                plt.xlim( x_range[0] - 10, x_range[1] ); plt.ylim( 0, np.nanmax( super_flat[x_range[0]:x_range[1],Conf.order_start] ) + 0.015 );
+                plt.xlabel( 'Pixel across orders' ); plt.ylabel( 'Flat Field Value' ); pdf.savefig(); plt.close()
         plt.clf()
 
         # Write out the preliminary trace
