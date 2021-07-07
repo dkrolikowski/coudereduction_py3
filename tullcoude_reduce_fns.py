@@ -16,6 +16,7 @@ import pandas as pd
 from astropy.io import fits
 from astropy.time import Time
 from scipy import signal
+from matplotlib.backends.backend_pdf import PdfPages
 
 ###################################################################################################
 ###### FUNCTIONS ######
@@ -119,53 +120,54 @@ def Basic_Cals( bias_inds, flat_inds, file_info, Conf ):
         if Conf.verbose: print( 'Reading Bias Files' )
         bias_rdn   = file_info['rdn'].values[bias_inds] / file_info['gain'].values[bias_inds]
         super_bias = Build_Bias( file_info['File'].values[bias_inds], bias_rdn[0] )
-        pickle.dump( super_bias, open( Conf.rdir + 'bias.pkl', 'wb' ) )
+        pickle.dump( super_bias, open( Conf.rdir + 'cal_files/bias.pkl', 'wb' ) )
 
         # Create super flat
         if Conf.verbose: print( 'Reading Flat Files' )
         flat_rdn   = file_info['rdn'].values[flat_inds] / file_info['gain'].values[flat_inds]
         super_flat = Build_Flat( file_info['File'].values[flat_inds], flat_rdn[0], super_bias )
-        pickle.dump( super_flat, open( Conf.rdir + 'flat.pkl', 'wb' ) )
+        pickle.dump( super_flat, open( Conf.rdir + 'cal_files/flat.pkl', 'wb' ) )
 
         # Create the bad pixel mask
         if Conf.verbose: print( 'Creating the bad pixel mask' )
         bad_pix_map = Make_BPM( super_bias['vals'], super_flat['vals'], Conf )
-        pickle.dump( bad_pix_map, open( Conf.rdir + 'bpm.pkl', 'wb' ) )
+        pickle.dump( bad_pix_map, open( Conf.rdir + 'cal_files/bpm.pkl', 'wb' ) )
+
+        # Plots!
+        plt.clf() # Plot the bias
+        plt.imshow( np.log10( super_bias['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none', vmin = np.median( np.log10( super_bias['vals'] ) ),
+                    vmax = np.percentile( np.log10( super_bias['vals'] ), Conf.bpm_limit ) )
+        plt.colorbar()
+        plt.title( str( np.nanmedian( super_bias['vals'] ) ) )
+        plt.savefig( Conf.rdir + 'cal_files/bias.pdf' )
+        plt.clf()
+
+        plt.clf() # Plot the flat
+        plt.imshow( np.log10( super_flat['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none' )
+        plt.colorbar()
+        plt.savefig( Conf.rdir + 'cal_files/flat.pdf' )
+        plt.clf()
+
+        plt.clf() # Plot the BPM
+        plt.imshow( np.log10( super_bias['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none', vmin = np.median( np.log10( super_bias['vals'] ) ),
+                    vmax = np.percentile( np.log10( super_bias['vals'] ), Conf.bpm_limit ) )
+        plt.plot( bad_pix_map[1], bad_pix_map[0], ',', c = '#dfa5e5', ms = 1 ) # Invert x,y for imshow
+        plt.colorbar()
+        plt.savefig( Conf.rdir + 'cal_files/bpm.pdf' )
+        plt.clf()
 
     elif not Conf.doCals: # If we're reading in already generated cal files
         if Conf.verbose: print( 'Reading in already generated Bias, Flat, and BPM files' )
-        super_bias  = pickle.load( open( Conf.rdir + 'bias.pkl' ) )
-        super_flat  = pickle.load( open( Conf.rdir + 'flat.pkl' ) )
-        bad_pix_map = pickle.load( open( Conf.rdir + 'bpm.pkl' ) )
-
-    plt.clf() # Plot the bias
-    plt.imshow( np.log10( super_bias['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none', vmin = np.median( np.log10( super_bias['vals'] ) ),
-                vmax = np.percentile( np.log10( super_bias['vals'] ), Conf.bpm_limit ) )
-    plt.colorbar()
-    plt.title( str( np.nanmedian( super_bias['vals'] ) ) )
-    plt.savefig( Conf.rdir + 'plots/bias.pdf' )
-    plt.clf()
-
-    plt.clf() # Plot the flat
-    plt.imshow( np.log10( super_flat['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none' )
-    plt.colorbar()
-    plt.savefig( Conf.rdir + 'plots/flat.pdf' )
-    plt.clf()
-
-    plt.clf() # Plot the BPM
-    plt.imshow( np.log10( super_bias['vals'] ), cmap = 'gray', aspect = 'auto', interpolation = 'none', vmin = np.median( np.log10( super_bias['vals'] ) ),
-                vmax = np.percentile( np.log10( super_bias['vals'] ), Conf.bpm_limit ) )
-    plt.plot( bad_pix_map[1], bad_pix_map[0], ',', c = '#dfa5e5', ms = 1 ) # Invert x,y for imshow
-    plt.colorbar()
-    plt.savefig( Conf.rdir + 'plots/bpm.pdf' )
-    plt.clf()
+        super_bias  = pickle.load( open( Conf.rdir + 'cal_files/bias.pkl', 'rb' ) )
+        super_flat  = pickle.load( open( Conf.rdir + 'cal_files/flat.pkl', 'rb' ) )
+        bad_pix_map = pickle.load( open( Conf.rdir + 'cal_files/bpm.pkl', 'rb' ) )
 
     return super_bias, super_flat, bad_pix_map
 
 ##### Section: Generate data cubes -- 2D spectral cubes for arc and object exposures #####
 
 ## Function: Make the data cubes! With cosmic subtraction, error propagation ##
-def Make_Cube( files, read_noise, gain, dark_curr, Conf, bias = None, flat = None, bpm = None, cos_sub = False ):
+def Make_Cube( files, read_noise, gain, dark_curr, Conf, bias = None, flat = None, bpm = None ):
 
     for i_file, file in enumerate( files ): # Loop through all files
         frame = fits.open( file )[0].data
@@ -178,7 +180,7 @@ def Make_Cube( files, read_noise, gain, dark_curr, Conf, bias = None, flat = Non
         err_vals = np.sqrt( val_cube[i_file] + dark_curr[0] + read_noise[i_file] ** 2.0 ) # Noise
 
         # Perform cosmic subtraction, if specified. Using astroscrappy now instead of cosmics (which works in py3 and is about 2x faster it seems)
-        if cos_sub:
+        if Conf.cosmic_sub:
             cos_mask, clean_frame = astroscrappy.detect_cosmics( val_cube[i_file], gain = gain[i_file], readnoise = read_noise[i_file], niter = Conf.niter_cosmic_sub,
                                                                  sigclip = 5, sigfrac = 0.3, objlim = 5, satlevel = np.inf )
             val_cube[i_file] = clean_frame
@@ -224,7 +226,7 @@ def Return_Cubes( arc_inds, obj_inds, file_info, dark_curr_arr, super_bias, supe
         rdn_vals  = file_info['rdn'].values[obj_inds] / file_info['gain'].values[obj_inds]
         dark_vals = dark_curr_arr[obj_inds] / file_info['gain'].values[obj_inds]
         gain_vals = file_info['gain'].values[obj_inds]
-        obj_val_cube, obj_snr_cube = Make_Cube( file_info['File'].values[obj_inds], rdn_vals, gain_vals, dark_vals, Conf, bias = super_bias, flat = super_flat, bpm = bad_pix_map, cos_sub = Conf.cosmic_sub )
+        obj_val_cube, obj_snr_cube = Make_Cube( file_info['File'].values[obj_inds], rdn_vals, gain_vals, dark_vals, Conf, bias = super_bias, flat = super_flat, bpm = bad_pix_map )
 
         pickle.dump( arc_val_cube, open( Conf.rdir + 'spec_cubes/cube_arc_val' + suffix + '.pkl', 'wb' ) ) # Write out the spectral cubes for ease (and only have to run cosmics once)
         pickle.dump( arc_snr_cube, open( Conf.rdir + 'spec_cubes/cube_arc_snr' + suffix + '.pkl', 'wb' ) )
@@ -275,13 +277,23 @@ def Start_Trace( flat_slice, grad_perc_cut ):
     return order_zeros, order_vals
 
 ## Function: Use flat slices to find starting values for the trace ##
-def Find_Orders( super_flat, order_start ):
+def Find_Orders( super_flat, order_start, Conf ):
     # Uses flat slices at edge and in middle and uses that to refine initial points
 
     mid_point = ( ( super_flat.shape[1] + order_start ) // 2 ) + 100 # Integer division if it is odd, add 100 for uh some reason.
 
     start_zeros, start_vals = Start_Trace( super_flat[:,order_start], 50.0 ) # Get peaks for edge of flat
     mid_zeros, mid_vals     = Start_Trace( super_flat[:,mid_point], 50.0 )   # Get peaks for middle of flat
+
+    # Plot the start and mid trace
+    plt.clf()
+    with PdfPages( Conf.rdir + 'trace/prelim_trace_start_mid.pdf' ) as pdf:
+        for x_range in [ ( 0, super_flat.shape[0] ), ( 0, 900 ), ( 800, super_flat.shape[0] ) ]:
+            plt.plot( super_flat[:,mid_point], '#dfa5e5', label = 'Mid Order' ); plt.plot( mid_zeros, mid_vals, '+', c = '#bf3465' )
+            plt.plot( super_flat[:,order_start], '#21bcff', label = 'Order Edge' ); plt.plot( start_zeros, start_vals, '+', c = '#1c6ccc' )
+            plt.xlim( x_range[0] - 10, x_range[1] ); plt.ylim( 0, np.nanmax( super_flat[x_range[0]:x_range[1],mid_point] ) + 0.015 )
+            plt.legend(); pdf.savefig(); plt.close()
+    plt.clf()
 
     # By hand remove extra orders that are present at the midpoint (just for here it is always 2, but that could be a problem for not our setup)
     mid_zeros = mid_zeros[2:]
@@ -297,8 +309,141 @@ def Find_Orders( super_flat, order_start ):
         slopes.append( y_diff / x_diff )
     slope_fit = np.polyfit( fit_range, slopes, 2 ) # Now do a 2nd order polynomial fit of the slopes!
 
+    # Plot the slope thing
+    plt.clf()
+    plt.plot( fit_range, slopes, 'o', c = '#dfa5e5' )
+    plt.plot( np.linspace( fit_range[0], fit_range[-1], 1000 ), np.polyval( slope_fit, np.linspace( fit_range[0], fit_range[-1], 1000 ) ), '#bf3465' )
+    plt.xlabel( 'Order Number' ); plt.ylabel( 'Edge to Mid Slope' )
+    plt.savefig( Conf.rdir + 'trace/prelim_trace_slopes.pdf' ); plt.clf()
+
     # Apply the fit 2nd order polynomial to get the final order locations at the edge!
     final_zeros = np.round( mid_zeros + np.polyval( slope_fit, range( len( mid_zeros ) ) ) * x_diff ).astype( int )
     final_vals  = super_flat[final_zeros, order_start]
 
     return final_zeros, final_vals
+
+######## INSERT THE OTHER FUNCTIONS ######
+
+## Function: Use order starting points to calculate full trace from the flat field ##
+def Full_Trace( super_flat, order_zeros, order_start ):
+
+    num_ord = order_zeros.size
+    trace   = np.zeros( ( num_ord, super_flat.shape[1] + order_start ), dtype = int )
+
+    for pix in range( 1, super_flat.shape[1] + order_start + 1 ):
+
+        if pix > 1:
+            prev = trace[:,-pix+1]
+        else:
+            prev = order_zeros
+
+        flat_slice = super_flat[:,-pix+order_start]
+
+        for i_ord in range( num_ord ):
+
+            flat_cut_val = flat_slice[prev[i_ord]] * 0.7
+            left_edge    = prev[i_ord] - 15 + np.where( flat_slice[prev[i_ord]-15:prev[i_ord]] <= flat_cut_val )[-1]
+            right_edge   = prev[i_ord] + np.where( flat_slice[prev[i_ord]:prev[i_ord]+20] <= flat_cut_val )[-1]
+
+            if len( left_edge ) == 0 or len( right_edge ) == 0:
+                trace[i_ord,-pix] = int( prev[i_ord] )
+            else:
+                trace[i_ord,-pix] = int( 0.5 * ( left_edge[-1] + right_edge[0] ) )
+
+    return trace
+
+## Function: Fit the full trace and correct outlier bad orders ##
+def Fit_Trace( trace, Conf ):
+    # Fit the trace with a 2nd order polynomial (the cubic term in the 3rd order fit was basically 0 for all orders)
+    # Also go through and fit the linear and quadratic terms as function of order number -- fix bad orders!
+
+    fit_trace  = np.zeros( ( trace.shape[0], 2048 ) )
+    trace_pars = np.zeros( ( trace.shape[0], 3 ) )
+
+    for i_ord in range( trace.shape[0] ): # Do initial fit for the trace along each order
+        trace_pars[i_ord] = np.polyfit( np.arange( trace.shape[1] ), trace[i_ord], 2 )
+
+    with PdfPages( Conf.rdir + 'trace/full_trace_hyperpars.pdf' ) as pdf:
+        for i_coeff in [ 0, 1 ]: # Redetermine linear and quadratic terms in the fits (leave zero point alone)
+
+            hyper_pars = np.polyfit( np.arange( trace_pars.shape[0] ), trace_pars[:,i_coeff], 2 )
+            hyper_fit  = np.polyval( hyper_pars, np.arange( trace_pars.shape[0] ) )
+
+            med_diff = np.median( np.abs( trace_pars[:,i_coeff] - hyper_fit ) )
+            mask     = np.where( np.abs( trace_pars[:,i_coeff] - hyper_fit ) <= 5 * med_diff )[0] # Correct orders more than 5 "sigma" bad
+
+            hyper_pars_2 = np.polyfit( mask, trace_pars[mask,i_coeff], 3 )
+            hyper_fit_2  = np.polyval( hyper_pars_2, np.arange( trace_pars.shape[0] ) )
+
+            # Plot the hyper parameter stuff!
+            plt.plot( trace_pars[:,i_coeff], 'o', c = '#dfa5e5', label = 'Order Parameter Values' )
+            plt.plot( mask, trace_pars[mask,i_coeff], '*', c = '#874310', label = 'Good Orders' )
+
+            plot_x = np.linspace( 0, trace_pars.shape[0], 200 )
+            plt.plot( plot_x, np.polyval( hyper_pars, plot_x ), '#50b29e', label = 'Initial Hyper Par Fit' )
+            plt.plot( plot_x, np.polyval( hyper_pars_2, plot_x ), '#bf3465', label = 'Final Hyper Par Fit' )
+            plt.legend(); pdf.savefig(); plt.close()
+
+            trace_pars[:,i_coeff] = hyper_fit_2
+    plt.clf()
+
+    for i_ord in range( trace.shape[0] ): # Calculate fitted trace from corrected/final polynomial fits
+
+        fit_trace[i_ord] = np.polyval( trace_pars[i_ord], np.arange( 2048 ) )
+
+    return fit_trace
+
+## Function: Call above functions to get initial trace, calculate full trace, and return fitted trace ##
+def Get_Trace( super_flat, Conf ):
+
+    if Conf.doTrace: # If we need to calculate the trace
+
+        if Conf.verbose: print( 'Performing preliminary trace' )
+        order_zeros, order_vals = Find_Orders( super_flat, Conf.order_start, Conf ) # Find initial values for trace
+
+        # Plot the preliminary trace
+        plt.clf()
+        with PdfPages( Conf.rdir + 'trace/prelim_trace.pdf' ) as pdf:
+            for x_range in [ ( 0, super_flat.shape[0] ), ( 0, 900 ), ( 800, super_flat.shape[0] ) ]:
+                plt.plot( super_flat[:,Conf.order_start], '#d9d9d9' ); plt.plot( order_zeros, order_vals, '+', c = '#bf3465' )
+                plt.xlim( x_range[0] - 10, x_range[1] ); plt.ylim( 0, np.nanmax( super_flat[x_range[0]:x_range[1],Conf.order_start] ) + 0.015 ); pdf.savefig(); plt.close()
+        plt.clf()
+
+        # Write out the preliminary trace
+        pickle.dump( { 'zeros': order_zeros, 'vals': order_vals }, open( Conf.rdir + 'trace/prelim_trace.pkl', 'wb' ) )
+
+        # Get rid of the first order if it isn't a full order/would spill over the top of the image (15 pixels roughly is half an order)
+        if order_zeros[0] < 15:
+            order_zeros = order_zeros[1:]
+            order_vals  = order_vals[1:]
+
+        # Get the full trace and fit it with polynomials per order
+        full_trace = Full_Trace( super_flat, order_zeros, Conf.order_start ) # Get full trace
+        fit_trace  = Fit_Trace( full_trace, Conf ) # Fit the full trace
+
+        # # Make sure the top order is a full order and doesn't spill over top of image
+        # if fit_trace[0,-1] <= 10.0: # 10 pixels is rough width of an order, be a bit conservative
+        #     full_trace = full_trace[1:]
+        #     fit_trace = fit_trace[1:]
+
+        if Conf.verbose: print( 'Saving full and fitted trace to file' )
+        pickle.dump( full_trace, open( Conf.rdir + 'trace/full_trace.pkl', 'wb' ) )
+        pickle.dump( fit_trace, open( Conf.rdir + 'trace/fit_trace.pkl', 'wb' ) )
+
+        plt.clf()
+        with PdfPages( Conf.rdir + 'trace/final_trace.pdf' ) as pdf:
+            for y_range in [ ( 2048, 0 ), ( 2048, 1000 ), ( 950, 0 ) ]:
+                plt.imshow( np.log10( super_flat ), aspect = 'auto', cmap = 'gray' )
+                for i_ord in range( fit_trace.shape[0] ):
+                    plt.plot( full_trace[i_ord], '.', c = '#dfa5e5', ms = 2 )
+                    plt.plot( fit_trace[i_ord], '#bf3465', lw = 1 )
+                plt.xlim( 0, 2048 ); plt.ylim( y_range ); pdf.savefig(); plt.close()
+        plt.clf()
+
+    else: # If trace has already been calculated
+
+        if Conf.verbose: print( 'Reading in premade Trace and plotting on Flat:' )
+        full_trace = pickle.load( open( Conf.rdir + 'trace/full_trace.pkl', 'rb' ) )
+        fit_trace  = pickle.load( open( Conf.rdir + 'trace/fit_trace.pkl', 'rb' ) )
+
+    return full_trace, fit_trace

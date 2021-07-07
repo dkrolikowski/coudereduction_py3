@@ -5,7 +5,7 @@ import os, pickle, pdb
 
 ##### Set the names of the directories you want to reduce! #####
 
-nightarr = [ 20201130 ]
+nightarr = [ 20200903, 20201130 ]
 
 if not isinstance( nightarr[0], str ):
     nightarr = [ str(night) for night in nightarr ]
@@ -28,16 +28,16 @@ for night in nightarr:
             self.codedir = os.getenv("HOME") + '/codes/coudereduction_py3/'
 
             ## Set which things to be done! ##
-            self.doCals   = True    # Extract and reduce calibration files
-            self.doCubes  = True    # Make the arc/object spectra cubes
-            self.doTrace  = False    # Do the trace!
+            self.doCals   = False    # Extract and reduce calibration files
+            self.doCubes  = False    # Make the arc/object spectra cubes
+            self.doTrace  = True    # Do the trace!
             self.doArcEx  = False    # Extract arc spectra -- simple extraction
             self.doObjEx  = False    # Extract object spectra -- full extraction
             self.doArcWav = False    # Determine arc spectra wavelength solutions
             self.doObjWav = False    # Apply wavelength solutions to object spectra
 
             ## Set other important parameters ##
-            self.cosmic_sub  = True   # Create object spectral cube with cosmic ray subtraction
+            self.cosmic_sub  = False   # Create object spectral cube with cosmic ray subtraction
             self.ObjExType  = 'arc'  # Set the extraction method for objects: 'full' or 'arc'
             self.verbose    = True    # Basically just have as much printing of what's going on to the terminal
             self.WavPolyOrd = 2       # Polynomial order for the wavelength solution fit
@@ -49,6 +49,7 @@ for night in nightarr:
             self.dark_curr_val = 0.0    # Value of the dark current
             self.bpm_limit     = 99.95  # Percentile to mark above as a bad pixel
             self.MedCut     = 85.0   # Flux percentile to cut at when making final trace using object spectra
+            self.order_start = -33
 
             ## Other thing to do ##
             self.doContFit  = True   # Continuum fit the object spectra
@@ -62,10 +63,11 @@ for night in nightarr:
     ## Make sure that the reduction directory actually exist! That would be a problem
     if not os.path.exists( Conf.rdir ):
         os.mkdir( Conf.rdir )
-    if not os.path.exists( Conf.rdir + 'plots/' ):
-        os.mkdir( Conf.rdir + 'plots/' )
-    if not os.path.exists( Conf.rdir + 'spec_cubes/' ):
-        os.mkdir( Conf.rdir + 'spec_cubes/' )
+    ## And now do the same for any necessary sub directories
+    sub_dirs = [ 'cal_files/', 'spec_cubes/', 'trace/' ]
+    for sub_dir in sub_dirs:
+        if not os.path.exists( Conf.rdir + sub_dir ):
+            os.mkdir( Conf.rdir + sub_dir )
 
     print( '\nYou are reducing directory', Conf.dir, 'Better be right!\n' )
 
@@ -104,13 +106,14 @@ for night in nightarr:
     ## Make the image cubes! Outputs images and SNR images
     arc_val_cube, arc_snr_cube, obj_val_cube, obj_snr_cube = Fns.Return_Cubes( arc_inds, obj_inds, file_info, dark_curr_arr, super_bias, super_flat, bad_pix_map, Conf )
 
-    # ##### Now do the trace! This is basically all in the functions file #####
-    #
-    # MedTrace, FitTrace = Fns.Get_Trace( FlatField['vals'], ObjCube, Conf )
-    #
-    # ## Funky thing to make sure the same orders (at least mostly) are extracted every time. Might wanna change this later but...
-    # FitTrace = FitTrace[:58]
-    #
+    ##### Now do the trace! This is basically all in the functions file #####
+
+    full_trace, fit_trace = Fns.Get_Trace( super_flat['vals'], Conf )
+
+    ## Funky thing to make sure the same orders (at least mostly) are extracted every time. Might wanna change this later but...
+    ## It is basically the same for this set up always
+    fit_trace = fit_trace[:58]
+
     # ##### Extraction time! For both arcs and objects #####
     #
     # ## Arc extraction!
