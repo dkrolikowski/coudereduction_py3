@@ -1,11 +1,11 @@
-import tullcoude_reduce_fns as Fns
+import tullcoude_reduce_fns_ronanbin as Fns
 import numpy as np
 import pandas as pd
 import os, pickle, pdb
 
 ##### Set the names of the directories you want to reduce! #####
 
-nightarr = [ 20200903, 20201130 ]
+nightarr = [ 20210813, 20210816, 20210831, 20210901 ]
 
 if not isinstance( nightarr[0], str ):
     nightarr = [ str(night) for night in nightarr ]
@@ -24,12 +24,12 @@ for night in nightarr:
 
             ## Set directories ##
             self.dir     = os.getenv("HOME") + '/Research/coude_data/' + night + '/'
-            self.rdir    = self.dir + 'reduction/'
+            self.rdir    = self.dir + 'reduction_tracetest/'
             self.codedir = os.getenv("HOME") + '/codes/coudereduction_py3/'
 
             ## Set which things to be done! ##
             self.doCals   = True    # Extract and reduce calibration files
-            self.doCubes  = False    # Make the arc/object spectra cubes
+            self.doCubes  = True    # Make the arc/object spectra cubes
             self.doTrace  = True    # Do the trace!
             self.doArcEx  = False    # Extract arc spectra -- simple extraction
             self.doObjEx  = False    # Extract object spectra -- full extraction

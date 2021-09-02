@@ -253,10 +253,10 @@ def Start_Trace( flat_slice, grad_perc_cut ):
     last_peak   = 0
 
     # Find peaks based on the gradient of the flat slice
-    for i_pix in range( 6, flat_slice.shape[0] ): # Start at 6 to cut out the very start, although probably doesn't matter if it is 0 or 6 or 12
+    for i_pix in range( 3, flat_slice.shape[0] ): # Start at 6 to cut out the very start, although probably doesn't matter if it is 0 or 6 or 12
         if flat_slice_grad[i_pix] > grad_cut_val or last_peak == 0:
-            if 100 > i_pix - last_peak > 20 or last_peak == 0:
-                order_zeros.append( i_pix + 11 )
+            if 50 > i_pix - last_peak > 10 or last_peak == 0:
+                order_zeros.append( i_pix + 5 )
                 last_peak = i_pix
     order_zeros = np.array( order_zeros )
 
@@ -264,8 +264,8 @@ def Start_Trace( flat_slice, grad_perc_cut ):
     for i_ord, ord_loc in enumerate( order_zeros ):
         flat_cut_val = flat_slice[ord_loc] * ( 0.7 ) # The value for like the edges of the order peak to center on (70% of the current peak value)
 
-        left  = ord_loc - 15 + np.where( flat_slice[ord_loc-15:ord_loc] <= flat_cut_val )[-1] # Use 15 as a rough peak width
-        right = ord_loc + np.where( flat_slice[ord_loc:ord_loc+20] <= flat_cut_val )[-1]
+        left  = ord_loc - 7 + np.where( flat_slice[ord_loc-7:ord_loc] <= flat_cut_val )[-1] # Use 15 as a rough peak width
+        right = ord_loc + np.where( flat_slice[ord_loc:ord_loc+10] <= flat_cut_val )[-1]
 
         if len( left ) == 0 or len( right ) == 0:
             order_zeros[i_ord] = ord_loc # If it just doesn't find the edges use what is already there!
@@ -280,7 +280,7 @@ def Start_Trace( flat_slice, grad_perc_cut ):
 def Find_Orders( super_flat, order_start, Conf ):
     # Uses flat slices at edge and in middle and uses that to refine initial points
 
-    mid_point = ( ( super_flat.shape[1] + order_start ) // 2 ) + 100 # Integer division if it is odd, add 100 for uh some reason.
+    mid_point = ( ( super_flat.shape[1] + order_start ) // 2 ) + 50 # Integer division if it is odd, add 100 for uh some reason.
 
     start_zeros, start_vals = Start_Trace( super_flat[:,order_start], 40.0 ) # Get peaks for edge of flat
     mid_zeros, mid_vals     = Start_Trace( super_flat[:,mid_point], 40.0 )   # Get peaks for middle of flat
@@ -288,7 +288,7 @@ def Find_Orders( super_flat, order_start, Conf ):
     # Plot the start and mid trace
     plt.clf()
     with PdfPages( Conf.rdir + 'trace/prelim_trace_start_mid.pdf' ) as pdf:
-        for x_range in [ ( 0, super_flat.shape[0] ), ( 0, 900 ), ( 800, super_flat.shape[0] ) ]:
+        for x_range in [ ( 0, super_flat.shape[0] ), ( 0, 450 ), ( 400, super_flat.shape[0] ) ]:
             plt.plot( super_flat[:,mid_point], '#dfa5e5', label = 'Mid Order' ); plt.plot( mid_zeros, mid_vals, '+', c = '#bf3465' )
             plt.plot( super_flat[:,order_start], '#21bcff', label = 'Order Edge' ); plt.plot( start_zeros, start_vals, '+', c = '#1c6ccc' )
             plt.xlim( x_range[0] - 10, x_range[1] ); plt.ylim( 0, np.nanmax( super_flat[x_range[0]:x_range[1],mid_point] ) + 0.015 )
@@ -343,8 +343,8 @@ def Full_Trace( super_flat, order_zeros, order_start ):
         for i_ord in range( num_ord ):
 
             flat_cut_val = flat_slice[prev[i_ord]] * 0.7
-            left_edge    = prev[i_ord] - 15 + np.where( flat_slice[prev[i_ord]-15:prev[i_ord]] <= flat_cut_val )[-1]
-            right_edge   = prev[i_ord] + np.where( flat_slice[prev[i_ord]:prev[i_ord]+20] <= flat_cut_val )[-1]
+            left_edge    = prev[i_ord] - 7 + np.where( flat_slice[prev[i_ord]-7:prev[i_ord]] <= flat_cut_val )[-1]
+            right_edge   = prev[i_ord] + np.where( flat_slice[prev[i_ord]:prev[i_ord]+10] <= flat_cut_val )[-1]
 
             if len( left_edge ) == 0 or len( right_edge ) == 0:
                 trace[i_ord,-pix] = int( prev[i_ord] )
@@ -358,7 +358,7 @@ def Fit_Trace( trace, Conf ):
     # Fit the trace with a 2nd order polynomial (the cubic term in the 3rd order fit was basically 0 for all orders)
     # Also go through and fit the linear and quadratic terms as function of order number -- fix bad orders!
 
-    fit_trace  = np.zeros( ( trace.shape[0], 2048 ) )
+    fit_trace  = np.zeros( ( trace.shape[0], 1024 ) )
     trace_pars = np.zeros( ( trace.shape[0], 3 ) )
 
     for i_ord in range( trace.shape[0] ): # Do initial fit for the trace along each order
@@ -394,7 +394,7 @@ def Fit_Trace( trace, Conf ):
 
     for i_ord in range( trace.shape[0] ): # Calculate fitted trace from corrected/final polynomial fits
 
-        fit_trace[i_ord] = np.polyval( trace_pars[i_ord], np.arange( 2048 ) )
+        fit_trace[i_ord] = np.polyval( trace_pars[i_ord], np.arange( 1024 ) )
 
     return fit_trace
 
@@ -409,7 +409,7 @@ def Get_Trace( super_flat, Conf ):
         # Plot the preliminary trace
         plt.clf()
         with PdfPages( Conf.rdir + 'trace/prelim_trace.pdf' ) as pdf:
-            for x_range in [ ( 0, super_flat.shape[0] ), ( 0, 900 ), ( 800, super_flat.shape[0] ) ]:
+            for x_range in [ ( 0, super_flat.shape[0] ), ( 0, 450 ), ( 400, super_flat.shape[0] ) ]:
                 plt.plot( super_flat[:,Conf.order_start], '#d9d9d9' ); plt.plot( order_zeros, order_vals, '+', c = '#bf3465' )
                 plt.xlim( x_range[0] - 10, x_range[1] ); plt.ylim( 0, np.nanmax( super_flat[x_range[0]:x_range[1],Conf.order_start] ) + 0.015 );
                 plt.xlabel( 'Pixel across orders' ); plt.ylabel( 'Flat Field Value' ); pdf.savefig(); plt.close()
@@ -419,7 +419,7 @@ def Get_Trace( super_flat, Conf ):
         pickle.dump( { 'zeros': order_zeros, 'vals': order_vals }, open( Conf.rdir + 'trace/prelim_trace.pkl', 'wb' ) )
 
         # Get rid of the first order if it isn't a full order/would spill over the top of the image (15 pixels roughly is half an order)
-        if order_zeros[0] < 15:
+        if order_zeros[0] < 6:
             order_zeros = order_zeros[1:]
             order_vals  = order_vals[1:]
 
@@ -436,14 +436,17 @@ def Get_Trace( super_flat, Conf ):
         pickle.dump( full_trace, open( Conf.rdir + 'trace/full_trace.pkl', 'wb' ) )
         pickle.dump( fit_trace, open( Conf.rdir + 'trace/fit_trace.pkl', 'wb' ) )
 
+        pickle.dump( full_trace, open( Conf.rdir + 'trace/full_trace_py2.pkl', 'wb' ), protocol = 2 )
+        pickle.dump( fit_trace, open( Conf.rdir + 'trace/fit_trace_py2.pkl', 'wb' ), protocol = 2 )
+
         plt.clf()
         with PdfPages( Conf.rdir + 'trace/final_trace.pdf' ) as pdf:
-            for y_range in [ ( 2048, 0 ), ( 2048, 1000 ), ( 950, 0 ) ]:
+            for y_range in [ ( 1024, 0 ), ( 1024, 500 ), ( 475, 0 ) ]:
                 plt.imshow( np.log10( super_flat ), aspect = 'auto', cmap = 'gray' )
                 for i_ord in range( fit_trace.shape[0] ):
                     plt.plot( full_trace[i_ord], '.', c = '#dfa5e5', ms = 2 )
                     plt.plot( fit_trace[i_ord], '#bf3465', lw = 1 )
-                plt.xlim( 0, 2048 ); plt.ylim( y_range ); pdf.savefig(); plt.close()
+                plt.xlim( 0, 1024 ); plt.ylim( y_range ); pdf.savefig(); plt.close()
         plt.clf()
 
     else: # If trace has already been calculated
