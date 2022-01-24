@@ -1,11 +1,12 @@
-import tullcoude_reduce_fns_ronanbin as Fns
+# import tullcoude_reduce_fns_ronanbin as Fns
+import tullcoude_reduce_fns as Fns
 import numpy as np
 import pandas as pd
 import os, pickle, pdb
 
 ##### Set the names of the directories you want to reduce! #####
 
-nightarr = [ 20210813, 20210816, 20210831, 20210901 ]
+nightarr = [ 20211119, 20211120 ]
 
 if not isinstance( nightarr[0], str ):
     nightarr = [ str(night) for night in nightarr ]
@@ -24,12 +25,12 @@ for night in nightarr:
 
             ## Set directories ##
             self.dir     = os.getenv("HOME") + '/Research/coude_data/' + night + '/'
-            self.rdir    = self.dir + 'reduction_tracetest/'
+            self.rdir    = self.dir + 'reduction/'
             self.codedir = os.getenv("HOME") + '/codes/coudereduction_py3/'
 
             ## Set which things to be done! ##
-            self.doCals   = True    # Extract and reduce calibration files
-            self.doCubes  = True    # Make the arc/object spectra cubes
+            self.doCals   = False    # Extract and reduce calibration files
+            self.doCubes  = False    # Make the arc/object spectra cubes
             self.doTrace  = True    # Do the trace!
             self.doArcEx  = False    # Extract arc spectra -- simple extraction
             self.doObjEx  = False    # Extract object spectra -- full extraction
@@ -48,7 +49,7 @@ for night in nightarr:
 
             self.dark_curr_val = 0.0    # Value of the dark current
             self.bpm_limit     = 99.95  # Percentile to mark above as a bad pixel
-            self.MedCut     = 85.0   # Flux percentile to cut at when making final trace using object spectra
+            self.MedCut     = 60.0   # Flux percentile to cut at when making final trace using object spectra
             self.order_start = -33
 
             ## Other thing to do ##
@@ -104,7 +105,7 @@ for night in nightarr:
     dark_curr_arr = file_info['ExpTime'].values * Conf.dark_curr_val ## Make a dark current array
 
     ## Make the image cubes! Outputs images and SNR images
-    arc_val_cube, arc_snr_cube, obj_val_cube, obj_snr_cube = Fns.Return_Cubes( arc_inds, obj_inds, file_info, dark_curr_arr, super_bias, super_flat, bad_pix_map, Conf )
+    # arc_val_cube, arc_snr_cube, obj_val_cube, obj_snr_cube = Fns.Return_Cubes( arc_inds, obj_inds, file_info, dark_curr_arr, super_bias, super_flat, bad_pix_map, Conf )
 
     ##### Now do the trace! This is basically all in the functions file #####
 

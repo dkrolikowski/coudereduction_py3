@@ -6,9 +6,6 @@
 
 ##### Imports #####
 
-import glob, os, pickle, mpyfit, pdb
-import astroscrappy
-
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -17,6 +14,13 @@ from astropy.io import fits
 from astropy.time import Time
 from scipy import signal
 from matplotlib.backends.backend_pdf import PdfPages
+
+import glob
+import os
+import pickle
+import mpyfit
+import pdb
+import astroscrappy
 
 ###################################################################################################
 ###### FUNCTIONS ######
@@ -158,9 +162,9 @@ def Basic_Cals( bias_inds, flat_inds, file_info, Conf ):
 
     elif not Conf.doCals: # If we're reading in already generated cal files
         if Conf.verbose: print( 'Reading in already generated Bias, Flat, and BPM files' )
-        super_bias  = pickle.load( open( Conf.rdir + 'cal_files/bias.pkl', 'rb' ) )
-        super_flat  = pickle.load( open( Conf.rdir + 'cal_files/flat.pkl', 'rb' ) )
-        bad_pix_map = pickle.load( open( Conf.rdir + 'cal_files/bpm.pkl', 'rb' ) )
+        super_bias  = pickle.load( open( Conf.rdir + 'cal_files/bias.pkl', 'rb' ), encoding = 'latin' )
+        super_flat  = pickle.load( open( Conf.rdir + 'cal_files/flat.pkl', 'rb' ), encoding = 'latin' )
+        bad_pix_map = pickle.load( open( Conf.rdir + 'cal_files/bpm.pkl', 'rb' ), encoding = 'latin' )
 
     return super_bias, super_flat, bad_pix_map
 
@@ -354,7 +358,7 @@ def Full_Trace( super_flat, order_zeros, order_start ):
     return trace
 
 ## Function: Fit the full trace and correct outlier bad orders ##
-def Fit_Trace( trace, Conf ):
+def Fit_Trace( trace, super_flat, Conf ):
     # Fit the trace with a 2nd order polynomial (the cubic term in the 3rd order fit was basically 0 for all orders)
     # Also go through and fit the linear and quadratic terms as function of order number -- fix bad orders!
 
@@ -362,18 +366,32 @@ def Fit_Trace( trace, Conf ):
     trace_pars = np.zeros( ( trace.shape[0], 3 ) )
 
     for i_ord in range( trace.shape[0] ): # Do initial fit for the trace along each order
-        trace_pars[i_ord] = np.polyfit( np.arange( trace.shape[1] ), trace[i_ord], 2 )
+        # trace_pars[i_ord] = np.polyfit( np.arange( trace.shape[1] ), trace[i_ord], 2 )
+        trace_pars[i_ord] = np.polyfit( np.arange( 750, trace[i_ord].size ), trace[i_ord,750:], 2 )
+
+    plt.clf()
+    with PdfPages( Conf.rdir + 'trace/initial_fit_full_trace.pdf' ) as pdf:
+        for y_range in [ ( 2048, 0 ), ( 2048, 1000 ), ( 950, 0 ) ]:
+            plt.imshow( np.log10( super_flat ), aspect = 'auto', cmap = 'gray' )
+            for i_ord in range( fit_trace.shape[0] ):
+                plt.plot( trace[i_ord], '.', c = '#dfa5e5', ms = 2 )
+                plt.plot( np.arange( 750, trace[i_ord].size ), trace[i_ord,750:], '.', c = '#50b29e', ms = 2 )
+                plt.plot( np.polyval( trace_pars[i_ord], np.arange( trace.shape[1] ) ), '#bf3465', lw = 1 )
+            plt.xlim( 0, 2048 ); plt.ylim( y_range ); pdf.savefig(); plt.close()
+    plt.clf()
 
     ## Title string values
     title_arr = [ '2nd order polynomial coefficient', '']
+    bad_orders = []
     with PdfPages( Conf.rdir + 'trace/full_trace_hyperpars.pdf' ) as pdf:
-        for i_coeff in [ 0, 1 ]: # Redetermine linear and quadratic terms in the fits (leave zero point alone)
+        for i_coeff in [ 0, 1, 2 ]: # Redetermine linear and quadratic terms in the fits (leave zero point alone)
 
             hyper_pars = np.polyfit( np.arange( trace_pars.shape[0] ), trace_pars[:,i_coeff], 2 )
             hyper_fit  = np.polyval( hyper_pars, np.arange( trace_pars.shape[0] ) )
 
             med_diff = np.median( np.abs( trace_pars[:,i_coeff] - hyper_fit ) )
             mask     = np.where( np.abs( trace_pars[:,i_coeff] - hyper_fit ) <= 5 * med_diff )[0] # Correct orders more than 5 "sigma" bad
+            print( np.where( np.abs( trace_pars[:,i_coeff] - hyper_fit ) > 5 * med_diff )[0] )
 
             hyper_pars_2 = np.polyfit( mask, trace_pars[mask,i_coeff], 3 )
             hyper_fit_2  = np.polyval( hyper_pars_2, np.arange( trace_pars.shape[0] ) )
@@ -389,7 +407,10 @@ def Fit_Trace( trace, Conf ):
             plt.title( str( 2 - i_coeff ) + ' order polynomial coefficient' )
             plt.legend(); pdf.savefig(); plt.close()
 
-            trace_pars[:,i_coeff] = hyper_fit_2
+            if i_coeff == 2:
+                trace_pars[[39,40],i_coeff] = hyper_fit_2[[39,40]]
+            else:
+                trace_pars[:,i_coeff] = hyper_fit_2
     plt.clf()
 
     for i_ord in range( trace.shape[0] ): # Calculate fitted trace from corrected/final polynomial fits
@@ -425,7 +446,7 @@ def Get_Trace( super_flat, Conf ):
 
         # Get the full trace and fit it with polynomials per order
         full_trace = Full_Trace( super_flat, order_zeros, Conf.order_start ) # Get full trace
-        fit_trace  = Fit_Trace( full_trace, Conf ) # Fit the full trace
+        fit_trace  = Fit_Trace( full_trace, super_flat, Conf ) # Fit the full trace
 
         # # Make sure the top order is a full order and doesn't spill over top of image
         # if fit_trace[0,-1] <= 10.0: # 10 pixels is rough width of an order, be a bit conservative
@@ -436,12 +457,16 @@ def Get_Trace( super_flat, Conf ):
         pickle.dump( full_trace, open( Conf.rdir + 'trace/full_trace.pkl', 'wb' ) )
         pickle.dump( fit_trace, open( Conf.rdir + 'trace/fit_trace.pkl', 'wb' ) )
 
+        pickle.dump( full_trace, open( Conf.rdir + 'trace/full_trace_py2.pkl', 'wb' ), protocol = 2 )
+        pickle.dump( fit_trace, open( Conf.rdir + 'trace/fit_trace_py2.pkl', 'wb' ), protocol = 2 )
+
         plt.clf()
         with PdfPages( Conf.rdir + 'trace/final_trace.pdf' ) as pdf:
-            for y_range in [ ( 2048, 0 ), ( 2048, 1000 ), ( 950, 0 ) ]:
+            for y_range in [ ( 2048, 0 ), ( 2048, 900 ), ( 950, 0 ) ]:
                 plt.imshow( np.log10( super_flat ), aspect = 'auto', cmap = 'gray' )
-                for i_ord in range( fit_trace.shape[0] ):
+                for i_ord in range( fit_trace[:58].shape[0] ):
                     plt.plot( full_trace[i_ord], '.', c = '#dfa5e5', ms = 2 )
+                    # plt.plot( full_trace[i_ord,750:], '.', c = '#50b29e', ms = 2 )
                     plt.plot( fit_trace[i_ord], '#bf3465', lw = 1 )
                 plt.xlim( 0, 2048 ); plt.ylim( y_range ); pdf.savefig(); plt.close()
         plt.clf()
@@ -453,3 +478,40 @@ def Get_Trace( super_flat, Conf ):
         fit_trace  = pickle.load( open( Conf.rdir + 'trace/fit_trace.pkl', 'rb' ) )
 
     return full_trace, fit_trace
+
+##### Section: Extraction! #####
+
+## Function: Calculate difference between data and model for mpyfit ##
+def Least( p, args ):
+
+    X, vals, err, func = args # Unpack arguments
+
+    if err is not None: # If there is an error array provided #### I will change this to just pass an array of ones if there isn't error to put in
+        dif = ( vals - func( X, p ) ) / err
+    else:
+        dif = vals - func( X, p )
+
+    return dif.ravel() # Use ravel() to turn multidimensional arrays to 1D
+
+## Function: 2D model of an order (each pixel is a gaussian with variation along dispersion direction) ##
+def OrderModel( X, p, return_full = False ):
+
+    x, y = X
+
+    means  = p[2] * x ** 2.0 + p[1] * x + p[0] # Trace of the order -- parabola
+    peaks  = p[5] * x ** 2.0 + p[4] * x + p[3] # Peak shape curve -- parabola
+    sigmas = p[9] * x ** 3.0 + p[8] * x ** 2.0 + p[7] * x + p[6] # Sigma curve -- cubic
+
+    # Full model
+    model  = peaks * np.exp( - ( y - means ) ** 2.0 / ( 2.0 * sigmas ** 2.0 ) ) + p[10]
+
+    if return_full == False: return model    # If we just want the model
+    else: return model, means, peaks, sigmas # If we need all of the model constituents
+
+## Function: Simple 1D Gaussian model ##
+def GaussModel( x, p ):
+    # Order of the parameters: amplitude, mean, sigma, background offset
+
+    model = p[0] * np.exp( - ( x - p[1] ) ** 2.0 / ( 2.0 * p[2] ** 2.0 ) ) + p[3]
+
+    return model
