@@ -6,7 +6,14 @@ import os, pickle, pdb
 
 ##### Set the names of the directories you want to reduce! #####
 
-nightarr = [ 20211119, 20211120 ]
+# Trace is good using 50 and 50 percentiles! to get to 58 orders at least
+# nightarr = [ 20201201, 20210108, 20210109, 20210201, 20210528, 20211208, 20211209, 20211210, 20211211, 20211212, 20211213 ]
+
+# Trace is weird so needs 55-55% and then the order extension
+# nightarr = [ 20201202 ]
+
+# I dunno about the Bill nights!
+# nightarr = [ 20211123, 20211207 ]
 
 if not isinstance( nightarr[0], str ):
     nightarr = [ str(night) for night in nightarr ]
@@ -24,6 +31,7 @@ for night in nightarr:
         def __init__( self ):
 
             ## Set directories ##
+            # self.dir     = '/Volumes/IGRINS_Reduced/coude_data/' + night + '/'
             self.dir     = os.getenv("HOME") + '/Research/coude_data/' + night + '/'
             self.rdir    = self.dir + 'reduction/'
             self.codedir = os.getenv("HOME") + '/codes/coudereduction_py3/'
@@ -44,13 +52,18 @@ for night in nightarr:
             self.WavPolyOrd = 2       # Polynomial order for the wavelength solution fit
             self.niter_cosmic_sub  = 2       # Set the number of iterations for the cosmic subtraction
 
+            # For trace finding
+            self.start_grad_perc = 55.0
+            self.mid_grad_perc   = 55.0
+            self.extend_to_58    = True
+
             self.InfoFile   = 'headstrip.csv'   # Name for the header info file
             self.PrelimWav  = 'prelim_wsol_new.pkl' # Name for the preliminary wavelength solution (initial guess)
 
             self.dark_curr_val = 0.0    # Value of the dark current
             self.bpm_limit     = 99.95  # Percentile to mark above as a bad pixel
-            self.MedCut     = 60.0   # Flux percentile to cut at when making final trace using object spectra
-            self.order_start = -33
+            self.MedCut        = 60.0   # Flux percentile to cut at when making final trace using object spectra
+            self.order_start   = -33
 
             ## Other thing to do ##
             self.doContFit  = True   # Continuum fit the object spectra
@@ -84,7 +97,7 @@ for night in nightarr:
     ##### Get file indices from header file #####
 
     bias_inds = np.where( file_info.Type == 'zero' )[0] ## Bias indicies
-    flat_inds = np.where( file_info.Type == 'flat' )[0] ## Flat indicies
+    flat_inds = np.where( ( file_info.Type == 'flat' ) & ( file_info.Object != 'FF integration time test' ) )[0] ## Flat indicies
 
     ## Arcs and Objs require some checking against frames that shouldn't be included... ensure arc is called an arc and that an object isn't a solar port or test!
     arc_hdrnames    = [ 'Thar', 'ThAr', 'THAR', 'A' ]

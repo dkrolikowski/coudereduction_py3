@@ -42,14 +42,18 @@ def Header_Info( Conf ):
         head  = fits.open(files[f])[0].header # Read in the header
 
         itype = head['imagetyp'] # First up image type (like object, comp, etc)
-        if len( files[f].split('.') ) > 2: itype = 'unknown' # Don't quite know what this is a catch for, some other fits file
+        if len( files[f].split('.') ) > 2:
+            itype = 'unknown' # Don't quite know what this is a catch for, some other fits file
 
         ra, dec = '', '' # Coordinates now!
-        if 'RA'  in head.keys(): ra  = head['RA']
-        if 'DEC' in head.keys(): dec = head['DEC']
+        if 'RA'  in head.keys():
+            ra  = head['RA']
+        if 'DEC' in head.keys():
+            dec = head['DEC']
 
         air = '' # Airmass now!
-        if 'AIRMASS' in head.keys(): air = str( head['airmass'] )
+        if 'AIRMASS' in head.keys():
+            air = str( head['airmass'] )
 
         exp_time = str( head['exptime'] ) # Get the exposure time
 
@@ -58,8 +62,9 @@ def Header_Info( Conf ):
         else:
             gain, rdn = str( head['gain2'] ), str( head['rdnoise2'] )
 
-        emflux = ''
-        if 'EMFLUX' in head.keys(): emflux = str( head['emflux'] )
+        emflux = '' # The emeter flux if it is there!
+        if 'EMFLUX' in head.keys():
+            emflux = str( head['emflux'] )
 
         line = ','.join( [ files[f], head['object'], ra, dec, itype, exp_time, head['DATE-OBS'], head['UT'], air, gain, rdn, head['ZD'], emflux, head['order'] ] )
         outfile.write( line + '\n' )
@@ -286,8 +291,8 @@ def Find_Orders( super_flat, order_start, Conf ):
 
     mid_point = ( ( super_flat.shape[1] + order_start ) // 2 ) + 100 # Integer division if it is odd, add 100 for uh some reason.
 
-    start_zeros, start_vals = Start_Trace( super_flat[:,order_start], 40.0 ) # Get peaks for edge of flat
-    mid_zeros, mid_vals     = Start_Trace( super_flat[:,mid_point], 40.0 )   # Get peaks for middle of flat
+    start_zeros, start_vals = Start_Trace( super_flat[:,order_start], Conf.start_grad_perc ) # Get peaks for edge of flat
+    mid_zeros, mid_vals     = Start_Trace( super_flat[:,mid_point], Conf.mid_grad_perc )   # Get peaks for middle of flat
 
     # Plot the start and mid trace
     plt.clf()
@@ -383,6 +388,7 @@ def Fit_Trace( trace, super_flat, Conf ):
     ## Title string values
     title_arr = [ '2nd order polynomial coefficient', '']
     bad_orders = []
+    hyper_par_fit_pars = np.zeros( ( 3, 4 ) )
     with PdfPages( Conf.rdir + 'trace/full_trace_hyperpars.pdf' ) as pdf:
         for i_coeff in [ 0, 1, 2 ]: # Redetermine linear and quadratic terms in the fits (leave zero point alone)
 
@@ -391,10 +397,17 @@ def Fit_Trace( trace, super_flat, Conf ):
 
             med_diff = np.median( np.abs( trace_pars[:,i_coeff] - hyper_fit ) )
             mask     = np.where( np.abs( trace_pars[:,i_coeff] - hyper_fit ) <= 5 * med_diff )[0] # Correct orders more than 5 "sigma" bad
-            print( np.where( np.abs( trace_pars[:,i_coeff] - hyper_fit ) > 5 * med_diff )[0] )
+            bad      = np.where( np.abs( trace_pars[:,i_coeff] - hyper_fit ) > 5 * med_diff )[0]
+
+            print( i_coeff, bad )
+
+            for bad_ord in bad:
+                bad_orders.append( bad_ord )
 
             hyper_pars_2 = np.polyfit( mask, trace_pars[mask,i_coeff], 3 )
             hyper_fit_2  = np.polyval( hyper_pars_2, np.arange( trace_pars.shape[0] ) )
+
+            hyper_par_fit_pars[i_coeff] = hyper_pars_2
 
             # Plot the hyper parameter stuff!
             plt.plot( trace_pars[:,i_coeff], 'o', c = '#dfa5e5', label = 'Order Parameter Values' )
@@ -407,15 +420,29 @@ def Fit_Trace( trace, super_flat, Conf ):
             plt.title( str( 2 - i_coeff ) + ' order polynomial coefficient' )
             plt.legend(); pdf.savefig(); plt.close()
 
+            # trace_pars[:,i_coeff] = hyper_fit_2
+
             if i_coeff == 2:
-                trace_pars[[39,40],i_coeff] = hyper_fit_2[[39,40]]
+                unique_bad_orders = np.unique( bad_orders )
+                trace_pars[unique_bad_orders,i_coeff] = hyper_fit_2[unique_bad_orders]
             else:
                 trace_pars[:,i_coeff] = hyper_fit_2
     plt.clf()
 
-    for i_ord in range( trace.shape[0] ): # Calculate fitted trace from corrected/final polynomial fits
-
-        fit_trace[i_ord] = np.polyval( trace_pars[i_ord], np.arange( 2048 ) )
+    if Conf.extend_to_58:
+        if trace.shape[0] < 58:
+            fit_trace = np.zeros( ( 58, 2048 ) )
+            for i_ord in range( 58 ):
+                if i_ord < trace.shape[0]:
+                    fit_trace[i_ord] = np.polyval( trace_pars[i_ord], np.arange( 2048 ) )
+                else:
+                    c0 = np.polyval( hyper_par_fit_pars[0], i_ord )
+                    c1 = np.polyval( hyper_par_fit_pars[1], i_ord )
+                    c2 = np.polyval( hyper_par_fit_pars[2], i_ord )
+                    fit_trace[i_ord] = np.polyval( np.array( [ c0, c1, c2 ] ), np.arange( 2048 ) )
+    else:
+        for i_ord in range( trace.shape[0] ): # Calculate fitted trace from corrected/final polynomial fits
+            fit_trace[i_ord] = np.polyval( trace_pars[i_ord], np.arange( 2048 ) )
 
     return fit_trace
 
@@ -464,11 +491,11 @@ def Get_Trace( super_flat, Conf ):
         with PdfPages( Conf.rdir + 'trace/final_trace.pdf' ) as pdf:
             for y_range in [ ( 2048, 0 ), ( 2048, 900 ), ( 950, 0 ) ]:
                 plt.imshow( np.log10( super_flat ), aspect = 'auto', cmap = 'gray' )
-                for i_ord in range( fit_trace[:58].shape[0] ):
+                for i_ord in range( full_trace.shape[0] ):
                     plt.plot( full_trace[i_ord], '.', c = '#dfa5e5', ms = 2 )
-                    # plt.plot( full_trace[i_ord,750:], '.', c = '#50b29e', ms = 2 )
+                for i_ord in range( fit_trace.shape[0] ):
                     plt.plot( fit_trace[i_ord], '#bf3465', lw = 1 )
-                plt.xlim( 0, 2048 ); plt.ylim( y_range ); pdf.savefig(); plt.close()
+                plt.xlim( 0, 2048 ); plt.ylim( y_range ); plt.title( full_trace.shape ); pdf.savefig(); plt.close()
         plt.clf()
 
     else: # If trace has already been calculated
